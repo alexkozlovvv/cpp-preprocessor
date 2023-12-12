@@ -10,12 +10,122 @@
 using namespace std;
 using filesystem::path;
 
+static regex local_include(R"/(\s*#\s*include\s*"([^"]*)"\s*)/");
+static regex default_include(R"/(\s*#\s*include\s*<([^>]*)>\s*)/");
+
 path operator""_p(const char* data, std::size_t sz) {
     return path(data, data + sz);
 }
 
-// напишите эту функцию
-bool Preprocess(const path& in_file, const path& out_file, const vector<path>& include_directories);
+bool OpenHeader(const path& path_to_header, ifstream& header ) {
+
+    header.open(path_to_header.string());
+    if(!header.is_open()) {
+        return false;
+    }
+    return true;
+}
+
+bool SearchDefaultHeader(const vector<path>& include_directories, const path& include_path, path& path_to_header,
+                            ifstream& header_file) {
+
+    error_code   err;
+
+    for(const path& directory : include_directories) {
+        path_to_header = directory / include_path;
+        auto status = filesystem::status(path_to_header, err);
+
+        if(!err && (status.type() == filesystem::file_type::regular)) {
+            return OpenHeader(path_to_header, header_file);
+        }
+    }
+    return false;
+}
+
+bool SearchLocalHeader(const path& path_to_in_file, const path& include_path, path& path_to_header,
+                          ifstream& header_file) {
+
+    error_code   err;
+
+    path_to_header = path_to_in_file.parent_path() / include_path;
+            
+    auto status = filesystem::status(path_to_header, err);
+
+    if(!err && (status.type() == filesystem::file_type::regular)) {
+        return OpenHeader(path_to_header, header_file);
+    }
+    return false;
+}
+
+bool RecursivePreprocess(const path& path_to_in_file, ifstream& input_file, ofstream& output_file, const vector<path>& include_directories) {
+    
+    error_code   err;
+    string temp_line;
+    smatch result_of_match;
+    path include_path;
+    path path_to_header;
+    ifstream header;
+    int line_count = 0;
+
+    while(getline(input_file, temp_line)) {
+
+        ++line_count;
+      
+        if (regex_match( temp_line, result_of_match, local_include)) {
+
+            include_path = string(result_of_match[1]);
+            if(!SearchLocalHeader(path_to_in_file, include_path, path_to_header, header)) {
+                if(!SearchDefaultHeader(include_directories, include_path, path_to_header, header)){
+                    cout << "unknown include file "s << include_path.string() << 
+                            " at file "s << path_to_in_file.string() << " at line "s << line_count << endl;
+                    return false;
+                }
+            }
+            if(!RecursivePreprocess(path_to_header, header, output_file, include_directories)) {
+                return false;
+            };
+
+            continue;
+
+        } else if (regex_match( temp_line, result_of_match, default_include)) {
+
+            include_path = string(result_of_match[1]);
+            if(!SearchDefaultHeader(include_directories, include_path, path_to_header, header)){
+                cout << "unknown include file "s << include_path.string() << 
+                        " at file "s << path_to_in_file.string() << " at line "s << line_count << endl;
+                return false;
+            }
+            if(!RecursivePreprocess(path_to_header, header, output_file, include_directories)) {
+                return false;
+            }
+            continue;
+        }
+        
+        output_file << temp_line << endl;
+    }
+    input_file.close();
+    return true;
+}
+
+bool Preprocess(const path& path_to_in_file, const path& path_to_out_file, const vector<path>& include_directories) {
+    
+    ifstream input_file;
+    input_file.open(path_to_in_file.string());
+
+    if(!input_file.is_open()) {
+        return false;
+    }
+
+    ofstream output_file;
+    output_file.open(path_to_out_file.string());
+
+    if(!output_file.is_open()) {
+        return false;
+    }
+
+    return RecursivePreprocess(path_to_in_file, input_file, output_file, include_directories);
+
+}
 
 string GetFileContents(string file) {
     ifstream stream(file);
