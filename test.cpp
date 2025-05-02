@@ -74,7 +74,6 @@ void Test() {
         preprocessor.Preprocess();
         assert(false);
     }catch( runtime_error& preprocess_err ){
-        string str = string(preprocess_err.what());
         assert(string("unknown include file dummy.txt at file sources/a.cpp at line 8") == string(preprocess_err.what()));
     }
 
